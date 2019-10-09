@@ -131,7 +131,6 @@ class ProjectsActionsMessageContributorsAPI(Resource):
 
 
 class ProjectsActionsFeatureAPI(Resource):
-    @tm.pm_only(True)
     @token_auth.login_required
     def post(self, project_id):
         """
@@ -167,13 +166,13 @@ class ProjectsActionsFeatureAPI(Resource):
                 description: Internal Server Error
         """
         try:
-            ProjectService.set_project_as_featured(project_id)
+            ProjectService.set_project_as_featured(project_id, tm.authenticated_user_id)
             return {"Success": True}, 200
         except NotFound:
             return {"Error": "Project Not Found"}, 404
         except ValueError as e:
             error_msg = f"FeaturedProjects POST: {str(e)}"
-            return {"Error": error_msg}, 400
+            return {"Error": error_msg}, 403
         except Exception as e:
             error_msg = f"FeaturedProjects GET - unhandled error: {str(e)}"
             current_app.logger.critical(error_msg)

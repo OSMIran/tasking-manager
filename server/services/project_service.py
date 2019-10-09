@@ -14,6 +14,7 @@ from server.models.dtos.project_dto import (
 )
 
 from server.models.postgis.organisation import Organisation
+from server.services.organisation_service import OrganisationService
 from server.models.postgis.project import Project, ProjectStatus, MappingLevel
 from server.models.postgis.statuses import (
     MappingNotAllowed,
@@ -128,7 +129,9 @@ class ProjectService:
         return contribs_dto
 
     @staticmethod
-    def get_project_dto_for_mapper(project_id, locale="en", abbrev=False) -> ProjectDTO:
+    def get_project_dto_for_mapper(
+        project_id, current_user_id, locale="en", abbrev=False
+    ) -> ProjectDTO:
         """
         Get the project DTO for mappers
         :param project_id: ID of the Project mapper has requested
@@ -136,7 +139,7 @@ class ProjectService:
         :raises ProjectServiceError, NotFound
         """
         project = ProjectService.get_project_by_id(project_id)
-        return project.as_dto_for_mapping(locale, abbrev)
+        return project.as_dto_for_mapping(current_user_id, locale, abbrev)
 
     @staticmethod
     def get_project_tasks(
@@ -190,7 +193,7 @@ class ProjectService:
 
     @staticmethod
     def evaluate_mapping_permission(
-        project_id: int, user_id: int, mapping_permission: int,
+        project_id: int, user_id: int, mapping_permission: int
     ):
         allowed_roles = [
             TeamRoles.MAPPER.value,
@@ -388,16 +391,88 @@ class ProjectService:
         return project.get_project_summary(preferred_locale)
 
     @staticmethod
-    def set_project_as_featured(project_id: int):
+    def set_project_as_featured(project_id: int, authenticated_user_id: int):
         """ Sets project as featured """
         project = ProjectService.get_project_by_id(project_id)
-        project.set_as_featured()
+        author_id = project.author_id
+        allowed_roles = [TeamRoles.PROJECT_MANAGER.value]
+
+        is_admin = UserService.is_user_an_admin(authenticated_user_id)
+        is_author = UserService.is_user_the_project_author(
+            authenticated_user_id, author_id
+        )
+        is_org_manager = False
+        if hasattr(project, "organisation_id") and project.organisation_id:
+            org_id = project.organisation_id
+            org = OrganisationService.get_organisation_by_id_as_dto(org_id)
+            if org.is_manager:
+                is_org_manager = True
+
+        is_team_member = None
+        if hasattr(project, "project_teams") and project.project_teams:
+            teams_dto = TeamService.get_project_teams_as_dto(project_id)
+            if teams_dto.teams:
+                teams_allowed = [
+                    team_dto
+                    for team_dto in teams_dto.teams
+                    if team_dto.role in allowed_roles
+                ]
+                user_membership = [
+                    team_dto.team_id
+                    for team_dto in teams_allowed
+                    if TeamService.is_user_member_of_team(
+                        team_dto.team_id, authenticated_user_id
+                    )
+                ]
+                if user_membership:
+                    is_team_member = True
+
+        if is_admin or is_author or is_org_manager or is_team_member:
+            project.set_as_featured()
+        else:
+            raise ValueError("Operation not permitted for User")
 
     @staticmethod
-    def unset_project_as_featured(project_id: int):
+    def unset_project_as_featured(project_id: int, authenticated_user_id: int):
         """ Sets project as featured """
         project = ProjectService.get_project_by_id(project_id)
-        project.unset_as_featured()
+        author_id = project.author_id
+        allowed_roles = [TeamRoles.PROJECT_MANAGER.value]
+
+        is_admin = UserService.is_user_an_admin(authenticated_user_id)
+        is_author = UserService.is_user_the_project_author(
+            authenticated_user_id, author_id
+        )
+        is_org_manager = False
+        if hasattr(project, "organisation_id") and project.organisation_id:
+            org_id = project.organisation_id
+            org = OrganisationService.get_organisation_by_id_as_dto(org_id)
+            if org.is_manager:
+                is_org_manager = True
+
+        is_team_member = None
+        if hasattr(project, "project_teams") and project.project_teams:
+            teams_dto = TeamService.get_project_teams_as_dto(project_id)
+            if teams_dto.teams:
+                teams_allowed = [
+                    team_dto
+                    for team_dto in teams_dto.teams
+                    if team_dto.role in allowed_roles
+                ]
+                user_membership = [
+                    team_dto.team_id
+                    for team_dto in teams_allowed
+                    if TeamService.is_user_member_of_team(
+                        team_dto.team_id, authenticated_user_id
+                    )
+                ]
+                if user_membership:
+                    is_team_member = True
+
+        if is_admin or is_author or is_org_manager or is_team_member:
+            project.unset_as_featured()
+        else:
+            return ValueError("Operation not permitted for User")
 
     @staticmethod
     def get_featured_projects(preferred_locale):
